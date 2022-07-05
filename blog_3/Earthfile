@@ -1,0 +1,26 @@
+restart-watcher-deps:
+    FROM golang:1.17-alpine3.15
+    RUN apk add build-base
+    WORKDIR /builder
+    COPY go.mod .
+    COPY go.sum .
+    RUN go mod download
+    SAVE ARTIFACT go.mod AS LOCAL go.mod
+    SAVE ARTIFACT go.sum AS LOCAL go.sum
+
+build-restart-watcher:
+    FROM +restart-watcher-deps
+    COPY --dir . .
+    ARG EARTHLY_GIT_HASH
+    ARG IMAGE_TAG=$EARTHLY_GIT_HASH
+    RUN CGO_ENABLED=0 go build -o /bin/restart-watcher ./main.go
+    SAVE ARTIFACT /bin/restart-watcher AS LOCAL ./artifacts/restart-watcher
+
+build-restart-watcher-image:
+    FROM amazon/aws-cli:2.7.12
+    COPY +build-restart-watcher/restart-watcher ./
+    ENTRYPOINT ["./restart-watcher"]
+    ARG EARTHLY_GIT_HASH
+    ARG IMAGE_TAG=$EARTHLY_GIT_HASH
+    ARG REG=125608480246.dkr.ecr.eu-west-3.amazonaws.com
+    SAVE IMAGE --push $REG/container-restart-watcher:$IMAGE_TAG
