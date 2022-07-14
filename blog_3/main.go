@@ -2,9 +2,14 @@ package main
 
 import (
 	"flag"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"groundcover.com/pkg/k8s_utils"
+	"groundcover.com/pkg/watchers"
 	watcher "groundcover.com/pkg/watchers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/component-base/logs"
 	"k8s.io/klog"
 )
@@ -15,8 +20,17 @@ func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig path")
 }
 
+func waitForInterrupt() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+
+	sig := <-ch
+	klog.Errorf("interrupt invoked. signal %s, closing...", sig.String())
+}
+
 func main() {
 	flag.Parse()
+
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
@@ -25,14 +39,28 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	controller := watcher.NewPodLoggingController(client)
-	stop := make(chan struct{})
-	defer close(stop)
+	eventCh := make(chan *watchers.ContainerRestartEvent)
+	stopCh := make(chan struct{})
 
-	err = controller.Run(stop)
+	listen(client, eventCh, stopCh)
+	go processRestartEvents(eventCh)
+
+	waitForInterrupt()
+	close(stopCh)
+	close(eventCh)
+}
+
+func listen(client *kubernetes.Clientset, eventCh chan *watcher.ContainerRestartEvent, stopCh chan struct{}) {
+	controller := watcher.NewPodWatcher(client, eventCh)
+
+	err := controller.Run(stopCh)
 	if err != nil {
 		klog.Fatal(err)
 	}
+}
 
-	select {}
+func processRestartEvents(eventCh chan *watcher.ContainerRestartEvent) {
+	for event := range eventCh {
+		klog.Infof("event: %+v", event)
+	}
 }
