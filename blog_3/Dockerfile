@@ -2,7 +2,14 @@ FROM ubuntu:focal
 
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y apt-transport-https ca-certificates gnupg curl unzip
+    apt-get install -y apt-transport-https ca-certificates gnupg curl unzip 
+
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
+    tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl --silent https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+
+RUN apt-get update && \
+    apt-get install -y google-cloud-cli
 
 ENV VERSION="1.18"
 ENV ARCH="amd64"
