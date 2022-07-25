@@ -1,7 +1,6 @@
 package watchers
 
 import (
-	"fmt"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -33,30 +32,24 @@ type PodWatcher struct {
 
 func NewPodWatcher(client *kubernetes.Clientset, eventCh chan *ContainerRestartEvent) *PodWatcher {
 	factory := informers.NewSharedInformerFactory(client, DEFAULT_RESYNC)
-
 	podInformer := factory.Core().V1().Pods()
 
-	c := &PodWatcher{
+	podWatcher := &PodWatcher{
 		informerFactory: factory,
 		podInformer:     podInformer,
 		eventCh:         eventCh,
 	}
 	podInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			UpdateFunc: c.podUpdate,
+			UpdateFunc: podWatcher.podUpdate,
 		},
 	)
 
-	return c
+	return podWatcher
 }
 
 func (c *PodWatcher) Run(stopCh chan struct{}) error {
 	c.informerFactory.Start(stopCh)
-
-	if !cache.WaitForCacheSync(stopCh, c.podInformer.Informer().HasSynced) {
-		return fmt.Errorf("failed to sync")
-	}
-
 	return nil
 }
 
