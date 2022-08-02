@@ -1,7 +1,6 @@
 package watchers
 
 import (
-	"fmt"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -9,7 +8,6 @@ import (
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
 )
 
 const (
@@ -26,45 +24,40 @@ type ContainerRestartEvent struct {
 	Message       string
 }
 
-type PodLoggingController struct {
+type PodWatcher struct {
 	informerFactory informers.SharedInformerFactory
 	podInformer     coreinformers.PodInformer
+	eventCh         chan *ContainerRestartEvent
 }
 
-// NewPodLoggingController creates a PodLoggingController
-func NewPodLoggingController(client *kubernetes.Clientset) *PodLoggingController {
+func NewPodWatcher(client *kubernetes.Clientset, eventCh chan *ContainerRestartEvent) *PodWatcher {
 	factory := informers.NewSharedInformerFactory(client, DEFAULT_RESYNC)
-
 	podInformer := factory.Core().V1().Pods()
 
-	c := &PodLoggingController{
+	podWatcher := &PodWatcher{
 		informerFactory: factory,
 		podInformer:     podInformer,
+		eventCh:         eventCh,
 	}
 	podInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			UpdateFunc: podUpdate,
+			UpdateFunc: podWatcher.podUpdate,
 		},
 	)
 
-	return c
+	return podWatcher
 }
 
-func (c *PodLoggingController) Run(stopCh chan struct{}) error {
+func (c *PodWatcher) Run(stopCh chan struct{}) error {
 	c.informerFactory.Start(stopCh)
-
-	if !cache.WaitForCacheSync(stopCh, c.podInformer.Informer().HasSynced) {
-		return fmt.Errorf("failed to sync")
-	}
-
 	return nil
 }
 
-func podUpdate(old, new interface{}) {
+func (c *PodWatcher) podUpdate(old, new interface{}) {
 	oldPod := old.(*v1.Pod)
 	newPod := new.(*v1.Pod)
 
-	// on informer sync we can get an update with the same pod ResourceVersion
+	// on informer sync we can get an update with the same pod ResourceVersion, we ignore these
 	if oldPod.ResourceVersion == newPod.ResourceVersion {
 		return
 	}
@@ -75,6 +68,7 @@ func podUpdate(old, new interface{}) {
 				continue
 			}
 
+			// this means the container has restarted, and has termination details
 			if oldContainer.RestartCount != newContainer.RestartCount && newContainer.LastTerminationState.Terminated != nil {
 				restartEvent := &ContainerRestartEvent{
 					Namespace:     newPod.Namespace,
@@ -86,7 +80,7 @@ func podUpdate(old, new interface{}) {
 					Message:       newContainer.LastTerminationState.Terminated.Message,
 				}
 
-				klog.Infof("container_restart_event: %+v", restartEvent)
+				c.eventCh <- restartEvent
 			}
 		}
 	}

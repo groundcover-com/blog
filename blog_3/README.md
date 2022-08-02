@@ -5,7 +5,7 @@
 ### Build
 Run the following command in the current directory:
 ```
-go build -o /bin/restart-watcher ./main.go
+go build -o artifacts/restart-watcher ./main.go
 ```
 
 Or if you prefer, you can build docker image using:
